@@ -1,6 +1,5 @@
 import Eth from "ethjs";
-import BN from "bn.js";
-import { action, computed, when, observable, runInAction, observe } from "mobx";
+import { action, computed, when, observable, observe } from "mobx";
 import Block from "./Block";
 import withTimeout from "./util/withTimeout";
 
@@ -11,13 +10,30 @@ const DEFAULT_DELAY = 2000;
 export default class EthStream {
   @observable headBlockNumber = 0;
 
-  constructor(jsonRpcUrl, props = {}) {
-    this.eth = new Eth(new Eth.HttpProvider(jsonRpcUrl));
+  constructor(provider, props = {}) {
+    // Check jsonRpcUrl
+    if (!provider)
+      throw new Error(
+        "web3 provider must be specified (e.g. `new EthStream(new HttpProvider('http://localhost:8545'), {})`)"
+      );
+    // Check fromBlockNumber, fromBlockHash, fromSnapshot props
+    const fromPropsCount = [
+      props.fromBlockHash,
+      props.fromBlockNumber,
+      props.fromSnapshot
+    ].filter(Boolean).length;
+    if (fromPropsCount > 1)
+      throw new Error(
+        "only one allowed: fromBlockHash, fromBlockNumber, fromSnapshot"
+      );
+    this.eth = new Eth(provider);
     this.onAddBlock = props.onAddBlock || (() => true);
     this.onConfirmBlock = props.onConfirmBlock || (() => true);
     this.onRollbackBlock = props.onRollbackBlock || (() => true);
-
-    // Optionally fill from snapshot
+    this.fromBlockHash = props.fromBlockHash;
+    this.fromBlockNumber = props.fromBlockNumber;
+    this.fromBlockLoaded = false;
+    // Start from snapshot
     if (props.fromSnapshot) {
       this.blocks = observable(
         new Map(
@@ -30,14 +46,30 @@ export default class EthStream {
     } else {
       this.blocks = observable(new Map());
     }
-
-    // Add origin block if passed to constructor
-    if (props.fromBlock) this.addBlock(props.fromBlock);
   }
 
   @computed
   get isEmpty() {
     return this.blocks.size === 0;
+  }
+
+  get fromBlockNeedsLoading() {
+    return (
+      this.fromBlockHash || (this.fromBlockNumber && !this.fromBlockLoaded)
+    );
+  }
+
+  async loadFromBlock() {
+    let fromBlock;
+    if (this.fromBlockHash) {
+      fromBlock = await this.eth.getBlockByHash(this.fromBlockHash, true);
+    }
+    if (this.fromBlockNumber) {
+      fromBlock = await this.eth.getBlockByNumber(this.fromBlockNumber, true);
+    }
+    this.fromBlockLoaded = true;
+    await this.addBlock(fromBlock);
+    return true;
   }
 
   takeSnapshot() {
@@ -53,18 +85,15 @@ export default class EthStream {
         2000
       );
       const addedBlock = await this.addBlock(latestBlock);
-      if (addedBlock) {
-        console.log("CURRENT BLOCK HISTORY:");
-        this.blocks.forEach(block => console.log(block.toString()));
-      }
     } catch (err) {
-      // TODO
-      console.log("Error", err);
+      console.log("ERROR", err);
+      // Silence getBlockByNumber errors
     }
     this.timer = setTimeout(() => this.getLatestBlock(delay), delay);
   }
 
-  start() {
+  async start() {
+    if (this.fromBlockNeedsLoading) await this.loadFromBlock();
     this.getLatestBlock();
   }
 
@@ -91,6 +120,8 @@ export default class EthStream {
     // Return if block isn't complete
     if (!block || !block.hash || !block.number || !block.parentHash)
       return false;
+    // Check for fromBlock
+    if (this.fromBlockNeedsLoading) await this.loadFromBlock();
     // Return if block already in history
     if (this.blocks.has(block.hash)) return false;
     // Check for parent
@@ -100,11 +131,9 @@ export default class EthStream {
       !this.blocks.has(block.parentHash)
     ) {
       const parentBlock = await this.eth.getBlockByHash(block.parentHash, true);
-      console.log("Adding parent", parentBlock.number.toString());
       await this.addBlock(parentBlock);
     }
     // Add block
-    console.log("Adding block", block.number.toString(), block.hash);
     const newBlock = new Block(this, block);
     this.blocks.set(block.hash, newBlock);
     this.onAddBlock(newBlock);
