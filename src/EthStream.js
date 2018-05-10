@@ -10,11 +10,11 @@ const DEFAULT_DELAY = 2000;
 export default class EthStream {
   @observable headBlockNumber = 0;
 
-  constructor(jsonRpcUrl, props = {}) {
+  constructor(provider, props = {}) {
     // Check jsonRpcUrl
-    if (!jsonRpcUrl)
+    if (!provider)
       throw new Error(
-        "host must be specified (e.g. `new EthStream('http://localhost:8545', {})` or `new EthStream('http://ropsten.infura.io')`)"
+        "web3 provider must be specified (e.g. `new EthStream(new HttpProvider('http://localhost:8545'), {})`)"
       );
     // Check fromBlockNumber, fromBlockHash, fromSnapshot props
     const fromPropsCount = [
@@ -26,7 +26,7 @@ export default class EthStream {
       throw new Error(
         "only one allowed: fromBlockHash, fromBlockNumber, fromSnapshot"
       );
-    this.eth = new Eth(new Eth.HttpProvider(jsonRpcUrl));
+    this.eth = new Eth(provider);
     this.onAddBlock = props.onAddBlock || (() => true);
     this.onConfirmBlock = props.onConfirmBlock || (() => true);
     this.onRollbackBlock = props.onRollbackBlock || (() => true);
@@ -67,7 +67,8 @@ export default class EthStream {
     if (this.fromBlockNumber) {
       fromBlock = await this.eth.getBlockByNumber(this.fromBlockNumber, true);
     }
-    if (fromBlock) await this.addBlock(fromBlock);
+    this.fromBlockLoaded = true;
+    await this.addBlock(fromBlock);
     return true;
   }
 
@@ -115,13 +116,12 @@ export default class EthStream {
   }
 
   @action
-  async addBlock(block, skipFromBlockLoading = false) {
+  async addBlock(block) {
     // Return if block isn't complete
     if (!block || !block.hash || !block.number || !block.parentHash)
       return false;
     // Check for fromBlock
-    if (this.fromBlockNeedsLoading && !skipFromBlockLoading)
-      await this.loadFromBlock();
+    if (this.fromBlockNeedsLoading) await this.loadFromBlock();
     // Return if block already in history
     if (this.blocks.has(block.hash)) return false;
     // Check for parent
