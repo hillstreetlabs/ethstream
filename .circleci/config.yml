@@ -1,7 +1,7 @@
 defaults: &defaults
   working_directory: ~/ethstream
   docker:
-    - image: circleci/node:9.6.0
+    - image: circleci/node:8.9.4
 
 version: 2
 jobs:
@@ -35,6 +35,8 @@ jobs:
       - run:
           name: Publish to NPM
           command: npm publish
+
+      - run: git push --follow-tags
 
 workflows:
   version: 2
