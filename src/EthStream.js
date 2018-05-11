@@ -55,7 +55,7 @@ export default class EthStream {
 
   get fromBlockNeedsLoading() {
     return (
-      this.fromBlockHash || (this.fromBlockNumber && !this.fromBlockLoaded)
+      (this.fromBlockHash || this.fromBlockNumber) && !this.fromBlockLoaded
     );
   }
 
