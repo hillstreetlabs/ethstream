@@ -140,7 +140,7 @@ export default class EthStream {
     // Re-count depths
     newBlock.setChildrenDepth(0);
     // Update headBlockNumber
-    const blockNumber = block.number.toNumber();
+    const blockNumber = parseInt(block.number);
     if (blockNumber > this.headBlockNumber) {
       this.headBlockNumber = blockNumber;
     }

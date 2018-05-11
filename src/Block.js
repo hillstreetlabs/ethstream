@@ -14,7 +14,7 @@ class Block {
 
   constructor(history, data) {
     this.history = history;
-    this.number = data.number.toNumber();
+    this.number = parseInt(data.number);
     this.hash = data.hash;
     this.parentHash = data.parentHash;
     // Set childrenDepth
