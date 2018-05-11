@@ -37,6 +37,22 @@ describe("constructor", () => {
     };
     expect(() => new EthStream(web3Provider, props)).toThrow();
   });
+
+  test("succeeds with fromSnapshot", () => {
+    const stream = new EthStream(web3Provider, {
+      fromSnapshot: [{ hash: "foo", number: 1, parentHash: "bar" }]
+    });
+    expect(stream.blocks.size).toEqual(1);
+  });
+
+  test("does not call addBlock with fromSnapshot", () => {
+    const addedBlocks = [];
+    const stream = new EthStream(web3Provider, {
+      fromSnapshot: [{ hash: "foo", number: 1, parentHash: "bar" }],
+      onAddBlock: block => addedBlocks.push(block)
+    });
+    expect(addedBlocks).toEqual([]);
+  });
 });
 
 describe("addBlock", () => {
@@ -72,5 +88,66 @@ describe("addBlock", () => {
       parentBlock.hash,
       newBlock.hash
     ]);
+  });
+
+  test("adds new block and backfills to fromBlockNumber", async () => {
+    await mineBlock(); // Make sure there is a block before fromBlock
+    const fromBlock = await mineBlock();
+    stream = new EthStream(web3Provider, {
+      onAddBlock: block => addedBlocks.push(block.hash),
+      fromBlockNumber: parseInt(fromBlock.number)
+    });
+    const parentBlock = await mineBlock();
+    const newBlock = await mineBlock();
+    await stream.addBlock(newBlock);
+    expect(addedBlocks).toEqual([
+      fromBlock.hash,
+      parentBlock.hash,
+      newBlock.hash
+    ]);
+  });
+
+  test("adds new block and backfills to fromBlockHash", async () => {
+    await mineBlock(); // Make sure there is a block before fromBlock
+    const fromBlock = await mineBlock();
+    stream = new EthStream(web3Provider, {
+      onAddBlock: block => addedBlocks.push(block.hash),
+      fromBlockHash: fromBlock.hash
+    });
+    const parentBlock = await mineBlock();
+    const newBlock = await mineBlock();
+    await stream.addBlock(newBlock);
+    expect(addedBlocks).toEqual([
+      fromBlock.hash,
+      parentBlock.hash,
+      newBlock.hash
+    ]);
+  });
+
+  test("adds new block and backfills to fromSnapshot", async () => {
+    await mineBlock(); // Make sure there is a block before fromBlock
+    const fromBlock = await mineBlock();
+    stream = new EthStream(web3Provider, {
+      onAddBlock: block => addedBlocks.push(block.hash),
+      fromSnapshot: [fromBlock]
+    });
+    const parentBlock = await mineBlock();
+    const newBlock = await mineBlock();
+    await stream.addBlock(newBlock);
+    expect(addedBlocks).toEqual([parentBlock.hash, newBlock.hash]);
+  });
+
+  test("adds new block and backfills to blockNumber of fromSnapshot", async () => {
+    await mineBlock(); // Make sure there is a block before fromBlock
+    const fromBlock = await mineBlock();
+    stream = new EthStream(web3Provider, {
+      onAddBlock: block => addedBlocks.push(block.hash),
+      fromSnapshot: [
+        { hash: "foo", number: parseInt(fromBlock.number), parentHash: "bar" }
+      ]
+    });
+    const newBlock = await mineBlock();
+    await stream.addBlock(newBlock);
+    expect(addedBlocks).toEqual([fromBlock.hash, newBlock.hash]);
   });
 });
