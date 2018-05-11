@@ -1,48 +1,12 @@
 import Ganache from "ganache-core";
 import Eth from "ethjs";
-import EthRpc from "ethjs-rpc";
 import EthStream from "../src/EthStream";
+import mineSingleBlock from "./util/mineSingleBlock";
 
 const web3Provider = Ganache.provider();
 const eth = new Eth(web3Provider);
-const rpc = new EthRpc(web3Provider);
 
-const mineBlock = () => {
-  return new Promise((resolve, reject) => {
-    rpc.sendAsync(
-      {
-        jsonrpc: "2.0",
-        method: "evm_mine",
-        id: new Date().getTime()
-      },
-      (err, result) => {
-        if (err) return reject(err);
-        resolve(result);
-      }
-    );
-  });
-};
-
-describe("mineBlock", () => {
-  test("succeeds", async () => {
-    const block = await mineBlock();
-    expect(block).toBeTruthy();
-  });
-
-  test("updates block number", async () => {
-    const blockNumber = parseInt(await eth.blockNumber());
-    await mineBlock();
-    const newBlockNumber = parseInt(await eth.blockNumber());
-    expect(newBlockNumber).toEqual(blockNumber + 1);
-  });
-
-  test("updates latest block", async () => {
-    const block = await eth.getBlockByNumber("latest", true);
-    await mineBlock();
-    const newBlock = await eth.getBlockByNumber("latest", true);
-    expect(newBlock.hash).not.toEqual(block.hash);
-  });
-});
+const mineBlock = () => mineSingleBlock(web3Provider);
 
 describe("constructor", () => {
   test("succeeds with valid provider", () => {
@@ -92,9 +56,21 @@ describe("addBlock", () => {
   });
 
   test("adds a new block by mining", async () => {
-    await mineBlock();
-    const newBlock = await eth.getBlockByNumber("latest", true);
+    const newBlock = await mineBlock();
     await stream.addBlock(newBlock);
     expect(addedBlocks).toEqual([newBlock.hash]);
+  });
+
+  test("adds parent blocks before child", async () => {
+    const rootBlock = await mineBlock();
+    await stream.addBlock(rootBlock);
+    const parentBlock = await mineBlock();
+    const newBlock = await mineBlock();
+    await stream.addBlock(newBlock);
+    expect(addedBlocks).toEqual([
+      rootBlock.hash,
+      parentBlock.hash,
+      newBlock.hash
+    ]);
   });
 });
