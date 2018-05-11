@@ -53,6 +53,14 @@ export default class EthStream {
     return this.blocks.size === 0;
   }
 
+  @computed
+  get rootBlockNumber() {
+    const blockNumbers = Array.from(this.blocks.values()).map(block =>
+      parseInt(block.number)
+    );
+    return Math.min(...blockNumbers);
+  }
+
   get fromBlockNeedsLoading() {
     return (
       (this.fromBlockHash || this.fromBlockNumber) && !this.fromBlockLoaded
@@ -127,6 +135,7 @@ export default class EthStream {
     // Check for parent
     if (
       !this.isEmpty &&
+      parseInt(block.number) > this.rootBlockNumber &&
       block.parentHash != NULL_HASH &&
       !this.blocks.has(block.parentHash)
     ) {
@@ -140,7 +149,7 @@ export default class EthStream {
     // Re-count depths
     newBlock.setChildrenDepth(0);
     // Update headBlockNumber
-    const blockNumber = block.number.toNumber();
+    const blockNumber = parseInt(block.number);
     if (blockNumber > this.headBlockNumber) {
       this.headBlockNumber = blockNumber;
     }

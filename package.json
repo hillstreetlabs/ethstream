@@ -1,6 +1,6 @@
 {
   "name": "ethstream",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Bare-bones block watcher for Ethereum",
   "main": "dist/index.js",
   "repository": "https://github.com/hillstreetlabs/ethstream",
@@ -8,7 +8,8 @@
   "license": "MIT",
   "scripts": {
     "watch": "babel src -d dist --watch -s -D",
-    "build": "babel src -s -D -d dist"
+    "build": "babel src -s -D -d dist",
+    "test": "jest"
   },
   "dependencies": {
     "ethjs": "^0.3.9",
@@ -19,6 +20,9 @@
     "babel-plugin-transform-decorators-legacy": "^1.3.4",
     "babel-preset-env": "^1.6.1",
     "babel-preset-es2015": "^6.24.1",
-    "babel-preset-stage-0": "^6.24.1"
+    "babel-preset-stage-0": "^6.24.1",
+    "ethjs-rpc": "^0.2.0",
+    "ganache-core": "^2.1.0",
+    "jest": "^22.4.3"
   }
 }
