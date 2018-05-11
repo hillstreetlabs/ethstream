@@ -2,11 +2,15 @@ import Ganache from "ganache-core";
 import Eth from "ethjs";
 import EthStream from "../src/EthStream";
 import mineSingleBlock from "./util/mineSingleBlock";
+import { randomBlockHash } from "./util/crypto";
 
-const web3Provider = Ganache.provider();
-const eth = new Eth(web3Provider);
+let web3Provider, eth, mineBlock;
 
-const mineBlock = () => mineSingleBlock(web3Provider);
+beforeEach(() => {
+  web3Provider = Ganache.provider();
+  eth = new Eth(web3Provider);
+  mineBlock = () => mineSingleBlock(web3Provider);
+});
 
 describe("constructor", () => {
   test("succeeds with valid provider", () => {
@@ -23,8 +27,7 @@ describe("constructor", () => {
 
   test("fails with fromBlockHash and fromBlockNumber props", () => {
     const props = {
-      fromBlockHash:
-        "0xf199d42f0bf6e68ada9a2a3dbf4a59b48ae6758fa3e1250fdb4408de88c71c1d",
+      fromBlockHash: randomBlockHash(),
       fromBlockNumber: 5596897
     };
     expect(() => new EthStream(web3Provider, props)).toThrow();
@@ -40,7 +43,9 @@ describe("constructor", () => {
 
   test("succeeds with fromSnapshot", () => {
     const stream = new EthStream(web3Provider, {
-      fromSnapshot: [{ hash: "foo", number: 1, parentHash: "bar" }]
+      fromSnapshot: [
+        { hash: randomBlockHash(), number: 1, parentHash: randomBlockHash() }
+      ]
     });
     expect(stream.blocks.size).toEqual(1);
   });
@@ -48,7 +53,9 @@ describe("constructor", () => {
   test("does not call addBlock with fromSnapshot", () => {
     const addedBlocks = [];
     const stream = new EthStream(web3Provider, {
-      fromSnapshot: [{ hash: "foo", number: 1, parentHash: "bar" }],
+      fromSnapshot: [
+        { hash: randomBlockHash(), number: 1, parentHash: randomBlockHash() }
+      ],
       onAddBlock: block => addedBlocks.push(block)
     });
     expect(addedBlocks).toEqual([]);
@@ -67,7 +74,11 @@ describe("addBlock", () => {
   });
 
   test("adds a new block", async () => {
-    await stream.addBlock({ hash: "foo", number: 1, parentHash: "bar" });
+    await stream.addBlock({
+      hash: "foo",
+      number: 1,
+      parentHash: randomBlockHash()
+    });
     expect(addedBlocks).toEqual(["foo"]);
   });
 
@@ -88,6 +99,20 @@ describe("addBlock", () => {
       parentBlock.hash,
       newBlock.hash
     ]);
+  });
+
+  test("fails to add block with invalid parent hash", async () => {
+    const fromBlock = await mineBlock();
+    await stream.addBlock(fromBlock);
+    await expect(
+      stream.addBlock({
+        hash: randomBlockHash(),
+        number: parseInt(fromBlock.number) + 1,
+        parentHash: randomBlockHash()
+      })
+    ).rejects.toThrow();
+
+    expect(addedBlocks).toEqual([fromBlock.hash]);
   });
 
   test("adds new block and backfills to fromBlockNumber", async () => {
@@ -143,7 +168,11 @@ describe("addBlock", () => {
     stream = new EthStream(web3Provider, {
       onAddBlock: block => addedBlocks.push(block.hash),
       fromSnapshot: [
-        { hash: "foo", number: parseInt(fromBlock.number), parentHash: "bar" }
+        {
+          hash: randomBlockHash(),
+          number: parseInt(fromBlock.number),
+          parentHash: randomBlockHash()
+        }
       ]
     });
     const newBlock = await mineBlock();
