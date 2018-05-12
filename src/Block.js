@@ -9,7 +9,6 @@ class Block {
     this.number = parseInt(data.number);
     this.hash = data.hash;
     this.parentHash = data.parentHash;
-    // TODO: init childrenDepth from childrenBlockHashes
     this.childrenDepth = observable.box(
       data.childrenDepth || this.computedChildrenDepth
     );
@@ -17,7 +16,7 @@ class Block {
     this.confirmDisposer = observe(this.childrenDepth, change => {
       if (change.newValue === this.childrenDepthToConfirm) {
         this.history.confirmBlock(this.hash);
-        this.confirmDisposer(); // Unsubscribe
+        this.confirmDisposer(); // Unsubscribe from further changes
       }
     });
     // Flush block when depth changes
@@ -44,6 +43,7 @@ class Block {
   @action
   updateChildrenDepth() {
     this.childrenDepth.set(this.computedChildrenDepth);
+    // Bubble up updates to parent
     if (this.parent) this.parent.updateChildrenDepth();
   }
 
