@@ -58,7 +58,17 @@ export default class EthStream {
     }
     // Watch for events
     const disposer = observe(this.blocks, change => {
-      if (change.type === "add") this.onAddBlock(change.newValue);
+      if (change.type === "add") {
+        const newBlock = change.newValue;
+        this.onAddBlock(newBlock);
+        // Re-count depths
+        newBlock.setChildrenDepth(0);
+        // Update headBlockNumber
+        const blockNumber = parseInt(newBlock.number);
+        if (blockNumber > this.headBlockNumber) {
+          this.headBlockNumber = blockNumber;
+        }
+      }
     });
   }
 
@@ -156,16 +166,9 @@ export default class EthStream {
       const parentBlock = await this.eth.getBlockByHash(block.parentHash, true);
       await this.addBlock(parentBlock);
     }
-    // Add block
+    // Add block and return
     const newBlock = new Block(this, block);
     this.blocks.set(block.hash, newBlock);
-    // Re-count depths
-    newBlock.setChildrenDepth(0);
-    // Update headBlockNumber
-    const blockNumber = parseInt(block.number);
-    if (blockNumber > this.headBlockNumber) {
-      this.headBlockNumber = blockNumber;
-    }
     return newBlock;
   }
 }

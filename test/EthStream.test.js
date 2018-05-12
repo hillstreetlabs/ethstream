@@ -252,7 +252,7 @@ describe("addBlock", () => {
     const uncleBlock = {
       number: parseInt(newBlock.number) - 3,
       hash: randomBlockHash(),
-      parentHash: randomBlockHash
+      parentHash: randomBlockHash()
     };
     await stream.addBlock(uncleBlock);
     expect(removedBlocks).toEqual([]);
@@ -260,7 +260,7 @@ describe("addBlock", () => {
     expect(removedBlocks).toEqual([uncleBlock.hash]);
   });
 
-  test("remove uncle blocks in order", async () => {
+  test("removes uncle blocks in order", async () => {
     await mineBlock();
     await mineBlock();
     await mineBlock();
@@ -282,5 +282,22 @@ describe("addBlock", () => {
     expect(removedBlocks).toEqual([]);
     await stream.addBlock(newBlock);
     expect(removedBlocks).toEqual([uncleBlock1.hash, uncleBlock2.hash]);
+  });
+
+  xtest("removes uncle block once when adding blocks asynchronously", async () => {
+    await mineBlock();
+    await mineBlock();
+    await mineBlock();
+    const newBlock = await mineBlock();
+    const uncleBlock = {
+      number: parseInt(newBlock.number) - 3,
+      hash: randomBlockHash(),
+      parentHash: randomBlockHash()
+    };
+    await stream.addBlock(uncleBlock);
+    await Promise.all([stream.addBlock(newBlock), stream.addBlock(newBlock)]);
+    console.log("addedBlocks", addedBlocks);
+    console.log("confirmedBlocks", confirmedBlocks);
+    expect(removedBlocks).toEqual([uncleBlock.hash]);
   });
 });
