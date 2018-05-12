@@ -6,5 +6,5 @@
       }
     }], "stage-0"
   ],
-  "plugins": ["transform-decorators-legacy"]
+  "plugins": ["mobx-async-action", "transform-decorators-legacy"]
 }
