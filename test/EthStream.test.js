@@ -60,16 +60,30 @@ describe("constructor", () => {
     });
     expect(addedBlocks).toEqual([]);
   });
+
+  test("fails when numConfirmations > streamSize", () => {
+    const props = {
+      numConfirmations: 4,
+      streamSize: 3
+    };
+    expect(() => new EthStream(web3Provider, props)).toThrow();
+  });
 });
 
 describe("addBlock", () => {
   // For sharing variables
-  let addedBlocks, stream;
+  let addedBlocks, confirmedBlocks, removedBlocks, stream;
 
   beforeEach(() => {
     addedBlocks = [];
+    confirmedBlocks = [];
+    removedBlocks = [];
     stream = new EthStream(web3Provider, {
-      onAddBlock: block => addedBlocks.push(block.hash)
+      onAddBlock: block => addedBlocks.push(block.hash),
+      onConfirmBlock: block => confirmedBlocks.push(block.hash),
+      onRollbackBlock: block => removedBlocks.push(block.hash),
+      numConfirmations: 2,
+      streamSize: 3
     });
   });
 
@@ -178,5 +192,95 @@ describe("addBlock", () => {
     const newBlock = await mineBlock();
     await stream.addBlock(newBlock);
     expect(addedBlocks).toEqual([fromBlock.hash, newBlock.hash]);
+  });
+
+  test("adds new block that is older than fromBlockHash", async () => {
+    await mineBlock();
+    const fromBlock = await mineBlock();
+    stream = new EthStream(web3Provider, {
+      onAddBlock: block => addedBlocks.push(block.hash),
+      fromBlockHash: fromBlock.hash
+    });
+    const newBlock = {
+      hash: randomBlockHash(),
+      number: parseInt(fromBlock.number) - 1,
+      parentHash: randomBlockHash()
+    };
+    await stream.addBlock(newBlock);
+    expect(addedBlocks).toEqual([fromBlock.hash, newBlock.hash]);
+  });
+
+  test("adds new blocks asynchronously", async () => {
+    const fromBlock = await mineBlock();
+    await stream.addBlock(fromBlock);
+    const parentBlock1 = await mineBlock();
+    const parentBlock2 = await mineBlock();
+    const newBlock = await mineBlock();
+    await Promise.all([stream.addBlock(newBlock), stream.addBlock(newBlock)]);
+    expect(addedBlocks).toEqual([
+      fromBlock.hash,
+      parentBlock1.hash,
+      parentBlock2.hash,
+      newBlock.hash
+    ]);
+  });
+
+  test("confirms parent block", async () => {
+    const fromBlock = await mineBlock();
+    await stream.addBlock(fromBlock);
+    await mineBlock();
+    const newBlock = await mineBlock();
+    await stream.addBlock(newBlock);
+    expect(confirmedBlocks).toEqual([fromBlock.hash]);
+  });
+
+  test("confirms parent blocks in order", async () => {
+    const confirmBlock1 = await mineBlock();
+    await stream.addBlock(confirmBlock1);
+    const confirmBlock2 = await mineBlock();
+    await mineBlock();
+    const newBlock = await mineBlock();
+    await stream.addBlock(newBlock);
+    expect(confirmedBlocks).toEqual([confirmBlock1.hash, confirmBlock2.hash]);
+  });
+
+  test("removes uncle block", async () => {
+    await mineBlock();
+    await mineBlock();
+    await mineBlock();
+    const newBlock = await mineBlock();
+    const uncleBlock = {
+      number: parseInt(newBlock.number) - 3,
+      hash: randomBlockHash(),
+      parentHash: randomBlockHash
+    };
+    await stream.addBlock(uncleBlock);
+    expect(removedBlocks).toEqual([]);
+    await stream.addBlock(newBlock);
+    expect(removedBlocks).toEqual([uncleBlock.hash]);
+  });
+
+  test("remove uncle blocks in order", async () => {
+    await mineBlock();
+    await mineBlock();
+    await mineBlock();
+    await mineBlock();
+    const newBlock = await mineBlock();
+    const uncleBlock1 = {
+      number: parseInt(newBlock.number) - 4,
+      hash: randomBlockHash(),
+      parentHash: randomBlockHash()
+    };
+    const uncleBlock2 = {
+      number: parseInt(newBlock.number) - 3,
+      hash: randomBlockHash(),
+      parentHash: uncleBlock1.hash
+    };
+    await stream.addBlock(uncleBlock1);
+    expect(removedBlocks).toEqual([]);
+    await stream.addBlock(uncleBlock2);
+    expect(removedBlocks).toEqual([]);
+    await stream.addBlock(newBlock);
+    expect(removedBlocks).toEqual([uncleBlock1.hash, uncleBlock2.hash]);
   });
 });

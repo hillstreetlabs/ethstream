@@ -3,6 +3,8 @@ import { action, computed, when, observable, observe } from "mobx";
 import Block from "./Block";
 import withTimeout from "./util/withTimeout";
 
+const DEFAULT_NUM_CONFIRMATIONS = 4; // childrenDepth to confirm
+const DEFAULT_STREAM_SIZE = 6; // depth to flush
 const NULL_HASH =
   "0x0000000000000000000000000000000000000000000000000000000000000000";
 const DEFAULT_DELAY = 2000;
@@ -11,11 +13,23 @@ export default class EthStream {
   @observable headBlockNumber = 0;
 
   constructor(provider, props = {}) {
-    // Check jsonRpcUrl
+    // Check web3 provider
     if (!provider)
       throw new Error(
         "web3 provider must be specified (e.g. `new EthStream(new HttpProvider('http://localhost:8545'), {})`)"
       );
+    this.eth = new Eth(provider);
+    this.numConfirmations = props.numConfirmations || DEFAULT_NUM_CONFIRMATIONS;
+    this.streamSize = props.streamSize || DEFAULT_STREAM_SIZE;
+    // Check numConfirmations, streamSize
+    if (this.numConfirmations > this.streamSize) {
+      throw new Error(
+        "streamSize must be greater than or equal to numConfirmations"
+      );
+    }
+    this.onAddBlock = props.onAddBlock || (() => true);
+    this.onConfirmBlock = props.onConfirmBlock || (() => true);
+    this.onRollbackBlock = props.onRollbackBlock || (() => true);
     // Check fromBlockNumber, fromBlockHash, fromSnapshot props
     const fromPropsCount = [
       props.fromBlockHash,
@@ -26,10 +40,6 @@ export default class EthStream {
       throw new Error(
         "only one allowed: fromBlockHash, fromBlockNumber, fromSnapshot"
       );
-    this.eth = new Eth(provider);
-    this.onAddBlock = props.onAddBlock || (() => true);
-    this.onConfirmBlock = props.onConfirmBlock || (() => true);
-    this.onRollbackBlock = props.onRollbackBlock || (() => true);
     this.fromBlockHash = props.fromBlockHash;
     this.fromBlockNumber = props.fromBlockNumber;
     this.fromBlockLoaded = false;
@@ -46,6 +56,10 @@ export default class EthStream {
     } else {
       this.blocks = observable(new Map());
     }
+    // Watch for events
+    const disposer = observe(this.blocks, change => {
+      if (change.type === "add") this.onAddBlock(change.newValue);
+    });
   }
 
   @computed
@@ -145,7 +159,6 @@ export default class EthStream {
     // Add block
     const newBlock = new Block(this, block);
     this.blocks.set(block.hash, newBlock);
-    this.onAddBlock(newBlock);
     // Re-count depths
     newBlock.setChildrenDepth(0);
     // Update headBlockNumber
