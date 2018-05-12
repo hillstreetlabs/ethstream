@@ -1,20 +1,20 @@
 import Eth from "ethjs";
 import BN from "bn.js";
-import { action, computed, when, observable, runInAction, observe } from "mobx";
+import { action, computed, when, observable, observe } from "mobx";
 import withTimeout from "./util/withTimeout";
 
 class Block {
-  @observable childrenDepth = 0;
-
   constructor(history, data) {
     this.history = history;
     this.number = parseInt(data.number);
     this.hash = data.hash;
     this.parentHash = data.parentHash;
-    // Set childrenDepth
-    this.childrenDepth = observable.box(data.childrenDepth || 0);
+    // TODO: init childrenDepth from childrenBlockHashes
+    this.childrenDepth = observable.box(
+      data.childrenDepth || this.computedChildrenDepth
+    );
     // Confirm block when childrenDepth changes
-    this.confirmDisposer = observe(this, "childrenDepth", change => {
+    this.confirmDisposer = observe(this.childrenDepth, change => {
       if (change.newValue === this.childrenDepthToConfirm) {
         this.history.confirmBlock(this.hash);
         this.confirmDisposer(); // Unsubscribe
@@ -32,10 +32,19 @@ class Block {
     return this.history.streamSize;
   }
 
+  @computed
+  get children() {
+    return this.history.blocksByParent.get(this.hash) || [];
+  }
+
+  get computedChildrenDepth() {
+    return Math.max(0, ...this.children.map(block => 1 + block.childrenDepth));
+  }
+
   @action
-  setChildrenDepth(newDepth) {
-    this.childrenDepth = newDepth;
-    if (this.parent) this.parent.setChildrenDepth(this.childrenDepth + 1);
+  updateChildrenDepth() {
+    this.childrenDepth.set(this.computedChildrenDepth);
+    if (this.parent) this.parent.updateChildrenDepth();
   }
 
   @computed

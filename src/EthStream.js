@@ -62,7 +62,7 @@ export default class EthStream {
         const newBlock = change.newValue;
         this.onAddBlock(newBlock);
         // Re-count depths
-        newBlock.setChildrenDepth(0);
+        newBlock.updateChildrenDepth();
         // Update headBlockNumber
         const blockNumber = parseInt(newBlock.number);
         if (blockNumber > this.headBlockNumber) {
@@ -70,6 +70,18 @@ export default class EthStream {
         }
       }
     });
+  }
+
+  @computed
+  get blocksByParent() {
+    const mapByParent = new Map();
+    if (!this.blocks) return mapByParent;
+    this.blocks.forEach((block, hash) => {
+      const childrenArray = mapByParent.get(block.parentHash) || [];
+      childrenArray.push(block);
+      mapByParent.set(block.parentHash, childrenArray);
+    });
+    return mapByParent;
   }
 
   @computed
@@ -118,7 +130,6 @@ export default class EthStream {
       );
       const addedBlock = await this.addBlock(latestBlock);
     } catch (err) {
-      console.log("ERROR", err);
       // Silence getBlockByNumber errors
     }
     this.timer = setTimeout(() => this.getLatestBlock(delay), delay);
@@ -164,7 +175,10 @@ export default class EthStream {
       !this.blocks.has(block.parentHash)
     ) {
       const parentBlock = await this.eth.getBlockByHash(block.parentHash, true);
-      await this.addBlock(parentBlock);
+      await this.addBlock({
+        ...parentBlock,
+        childrenDepth: (block.childrenDepth || 0) + 1
+      });
     }
     // Add block and return
     const newBlock = new Block(this, block);
