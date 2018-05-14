@@ -3,6 +3,8 @@ import { action, computed, when, observable, observe } from "mobx";
 import Block from "./Block";
 import withTimeout from "./util/withTimeout";
 
+const DEFAULT_NUM_CONFIRMATIONS = 4; // childrenDepth to confirm
+const DEFAULT_STREAM_SIZE = 6; // depth to flush
 const NULL_HASH =
   "0x0000000000000000000000000000000000000000000000000000000000000000";
 const DEFAULT_DELAY = 2000;
@@ -11,11 +13,23 @@ export default class EthStream {
   @observable headBlockNumber = 0;
 
   constructor(provider, props = {}) {
-    // Check jsonRpcUrl
+    // Check web3 provider
     if (!provider)
       throw new Error(
         "web3 provider must be specified (e.g. `new EthStream(new HttpProvider('http://localhost:8545'), {})`)"
       );
+    this.eth = new Eth(provider);
+    this.numConfirmations = props.numConfirmations || DEFAULT_NUM_CONFIRMATIONS;
+    this.streamSize = props.streamSize || DEFAULT_STREAM_SIZE;
+    // Check numConfirmations, streamSize
+    if (this.numConfirmations > this.streamSize) {
+      throw new Error(
+        "streamSize must be greater than or equal to numConfirmations"
+      );
+    }
+    this.onAddBlock = props.onAddBlock || (() => true);
+    this.onConfirmBlock = props.onConfirmBlock || (() => true);
+    this.onRollbackBlock = props.onRollbackBlock || (() => true);
     // Check fromBlockNumber, fromBlockHash, fromSnapshot props
     const fromPropsCount = [
       props.fromBlockHash,
@@ -26,10 +40,6 @@ export default class EthStream {
       throw new Error(
         "only one allowed: fromBlockHash, fromBlockNumber, fromSnapshot"
       );
-    this.eth = new Eth(provider);
-    this.onAddBlock = props.onAddBlock || (() => true);
-    this.onConfirmBlock = props.onConfirmBlock || (() => true);
-    this.onRollbackBlock = props.onRollbackBlock || (() => true);
     this.fromBlockHash = props.fromBlockHash;
     this.fromBlockNumber = props.fromBlockNumber;
     this.fromBlockLoaded = false;
@@ -46,6 +56,32 @@ export default class EthStream {
     } else {
       this.blocks = observable(new Map());
     }
+    // Watch for events
+    const disposer = observe(this.blocks, change => {
+      if (change.type === "add") {
+        const newBlock = change.newValue;
+        this.onAddBlock(newBlock);
+        // Re-count depths
+        newBlock.updateChildrenDepth();
+        // Update headBlockNumber
+        const blockNumber = parseInt(newBlock.number);
+        if (blockNumber > this.headBlockNumber) {
+          this.headBlockNumber = blockNumber;
+        }
+      }
+    });
+  }
+
+  @computed
+  get blocksByParent() {
+    const mapByParent = new Map();
+    if (!this.blocks) return mapByParent;
+    this.blocks.forEach((block, hash) => {
+      const childrenArray = mapByParent.get(block.parentHash) || [];
+      childrenArray.push(block);
+      mapByParent.set(block.parentHash, childrenArray);
+    });
+    return mapByParent;
   }
 
   @computed
@@ -53,9 +89,17 @@ export default class EthStream {
     return this.blocks.size === 0;
   }
 
+  @computed
+  get rootBlockNumber() {
+    const blockNumbers = Array.from(this.blocks.values()).map(block =>
+      parseInt(block.number)
+    );
+    return Math.min(...blockNumbers);
+  }
+
   get fromBlockNeedsLoading() {
     return (
-      this.fromBlockHash || (this.fromBlockNumber && !this.fromBlockLoaded)
+      (this.fromBlockHash || this.fromBlockNumber) && !this.fromBlockLoaded
     );
   }
 
@@ -86,7 +130,6 @@ export default class EthStream {
       );
       const addedBlock = await this.addBlock(latestBlock);
     } catch (err) {
-      console.log("ERROR", err);
       // Silence getBlockByNumber errors
     }
     this.timer = setTimeout(() => this.getLatestBlock(delay), delay);
@@ -127,23 +170,19 @@ export default class EthStream {
     // Check for parent
     if (
       !this.isEmpty &&
+      parseInt(block.number) > this.rootBlockNumber &&
       block.parentHash != NULL_HASH &&
       !this.blocks.has(block.parentHash)
     ) {
       const parentBlock = await this.eth.getBlockByHash(block.parentHash, true);
-      await this.addBlock(parentBlock);
+      await this.addBlock({
+        ...parentBlock,
+        childrenDepth: (block.childrenDepth || 0) + 1
+      });
     }
-    // Add block
+    // Add block and return
     const newBlock = new Block(this, block);
     this.blocks.set(block.hash, newBlock);
-    this.onAddBlock(newBlock);
-    // Re-count depths
-    newBlock.setChildrenDepth(0);
-    // Update headBlockNumber
-    const blockNumber = block.number.toNumber();
-    if (blockNumber > this.headBlockNumber) {
-      this.headBlockNumber = blockNumber;
-    }
     return newBlock;
   }
 }

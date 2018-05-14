@@ -1,55 +1,66 @@
 import Eth from "ethjs";
 import BN from "bn.js";
-import { action, computed, when, observable, runInAction, observe } from "mobx";
+import { action, computed, when, observable, observe } from "mobx";
 import withTimeout from "./util/withTimeout";
 
-const CHILDREN_DEPTH_TO_CONFIRM = 4;
-const DEPTH_TO_FLUSH = 6;
-const NULL_HASH =
-  "0x0000000000000000000000000000000000000000000000000000000000000000";
-const DEFAULT_WATCH_DELAY = 5000;
-
 class Block {
-  @observable childrenDepth = 0;
-
   constructor(history, data) {
     this.history = history;
-    this.number = data.number.toNumber();
+    this.number = parseInt(data.number);
     this.hash = data.hash;
     this.parentHash = data.parentHash;
-    // Set childrenDepth
-    this.childrenDepth = observable.box(data.childrenDepth || 0);
+    this.childrenDepth = observable.box(
+      data.childrenDepth || this.computedChildrenDepth
+    );
     // Confirm block when childrenDepth changes
-    this.confirmDisposer = observe(this, "childrenDepth", change => {
-      if (change.newValue === CHILDREN_DEPTH_TO_CONFIRM) {
+    this.confirmDisposer = observe(this.childrenDepth, change => {
+      if (change.newValue === this.childrenDepthToConfirm) {
         this.history.confirmBlock(this.hash);
-        this.confirmDisposer(); // Unsubscribe
+        this.confirmDisposer(); // Unsubscribe from further changes
       }
     });
     // Flush block when depth changes
     when(() => this.isFlushable, () => this.history.flushBlock(this.hash));
   }
 
+  get childrenDepthToConfirm() {
+    return this.history.numConfirmations;
+  }
+
+  get depthToFlush() {
+    return this.history.streamSize;
+  }
+
+  @computed
+  get children() {
+    return this.history.blocksByParent.get(this.hash) || [];
+  }
+
+  get computedChildrenDepth() {
+    return Math.max(0, ...this.children.map(block => 1 + block.childrenDepth));
+  }
+
   @action
-  setChildrenDepth(newDepth) {
-    this.childrenDepth = newDepth;
-    if (this.parent) this.parent.setChildrenDepth(this.childrenDepth + 1);
+  updateChildrenDepth() {
+    this.childrenDepth.set(this.computedChildrenDepth);
+    // Bubble up updates to parent
+    if (this.parent) this.parent.updateChildrenDepth();
   }
 
   @computed
   get isConfirmed() {
-    return this.childrenDepth >= CHILDREN_DEPTH_TO_CONFIRM;
+    return this.childrenDepth >= this.childrenDepthToConfirm;
   }
 
   @computed
   get isFlushable() {
     // Make sure not to flush blocks before their parents are flushed
-    return this.depth >= DEPTH_TO_FLUSH && !this.parent;
+    return this.depth >= this.depthToFlush && !this.parent;
   }
 
   @computed
   get blocksToFlush() {
-    return DEPTH_TO_FLUSH - this.depth;
+    return this.depthToFlush - this.depth;
   }
 
   @computed
