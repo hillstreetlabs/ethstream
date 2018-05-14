@@ -13,8 +13,11 @@
     "test": "jest"
   },
   "dependencies": {
+    "@types/node": "^10.0.8",
     "ethjs": "^0.3.9",
-    "mobx": "^4.2.1"
+    "ethjs-query": "^0.3.8",
+    "mobx": "^4.2.1",
+    "typescript": "^2.8.3"
   },
   "devDependencies": {
     "babel-cli": "^6.26.0",
