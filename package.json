@@ -1,6 +1,6 @@
 {
   "name": "ethstream",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "Bare-bones block watcher for Ethereum",
   "main": "dist/index.js",
   "repository": "https://github.com/hillstreetlabs/ethstream",
