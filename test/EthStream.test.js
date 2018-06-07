@@ -167,7 +167,6 @@ describe("addBlock", () => {
     const parentBlock = await mineBlock();
     const newBlock = await mineBlock();
     const promise = stream.addBlock(newBlock);
-    setTimeout(() => console.log(promise), 2000);
     await promise;
     expect(addedBlocks).toEqual([
       fromBlock.hash,
