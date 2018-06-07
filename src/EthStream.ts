@@ -172,7 +172,10 @@ export default class EthStream extends EventEmitter {
     // Try to get at most BATCH_SIZE blocks, stopping if we meet
     let blocks;
     try {
-      const currentBlockNumber = await this.web3.eth.getBlockNumber();
+      const currentBlockNumber = await withTimeout(
+        this.web3.eth.getBlockNumber(),
+        2000
+      );
       let blockNumber = this.maxBlockNumber + 1;
       const promises = [];
       while (
@@ -186,13 +189,13 @@ export default class EthStream extends EventEmitter {
         );
         blockNumber++;
       }
-      blocks = await Promise.all(promises);
+      blocks = await withTimeout(Promise.all(promises), 5000);
     } catch (e) {
       console.debug(
         "[Ethstream] There was a problem loading old blocks, trying again..."
       );
       this.isAddingOldBlocks = false;
-      setTimeout(() => this.addOldBlocks(), 1000);
+      setTimeout(() => this.addOldBlocks(), 3000);
       return;
     }
 
