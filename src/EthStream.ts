@@ -106,7 +106,6 @@ export default class EthStream extends EventEmitter {
   }
 
   start() {
-    console.log("Starting");
     this.isStopped = false;
     this.getLatestBlock();
   }
@@ -135,7 +134,6 @@ export default class EthStream extends EventEmitter {
   async fetchFirstBlock(props: IEthStreamProps) {
     // Start from snapshot
     if (props.fromSnapshot) {
-      console.log("Restoring");
       this.restoreFromSnapshot(props.fromSnapshot);
     } else {
       let fromBlock;
@@ -153,7 +151,6 @@ export default class EthStream extends EventEmitter {
       }
       this.insertBlock(Block.fromBlock(fromBlock));
     }
-    console.log("EMitting");
     this.emit("ready");
   }
 
@@ -165,7 +162,6 @@ export default class EthStream extends EventEmitter {
       );
       this.addBlock(latestBlock);
     } catch (err) {
-      console.log("ERROR", err);
       // Silence getBlockByNumber errors
     }
     this.timer = setTimeout(() => this.getLatestBlock(delay), delay);
@@ -209,7 +205,6 @@ export default class EthStream extends EventEmitter {
     blocks.forEach(block => {
       this.insertBlock(block);
     });
-    console.log("Done adding old blocks");
     this.isAddingOldBlocks = false;
   }
 
@@ -262,7 +257,6 @@ export default class EthStream extends EventEmitter {
   }
 
   private async run() {
-    console.log("Trying to run with ", this.blocksToAdd.map(b => b.number));
     if (this.isRunning) return;
     this.isRunning = true;
 
@@ -277,7 +271,6 @@ export default class EthStream extends EventEmitter {
 
     while (this.blocksToAdd.length > 0) {
       const block = this.blocksToAdd.shift();
-      console.log("Trying to add block", block.number);
 
       // Make sure we don't add the same block twice
       if (this.addedBlocksByHash.get(block.hash)) continue;
@@ -290,7 +283,6 @@ export default class EthStream extends EventEmitter {
         if (this.blocksToAdd.length === 0) this.emit("live");
       } else {
         // We don't have the parent, try to backfill our way there
-        console.log("trying to add parent of block", block.number);
         this.getBlockByHash(block.parentHash).then(parent => {
           if (!parent) return;
           this.queueBlock(parent);
@@ -307,7 +299,6 @@ export default class EthStream extends EventEmitter {
     // We're ready to insert a leaf block into the tree. Insert it and update
     // childDepths
 
-    console.log("Inserting ", block.hash);
     this.emit("add", block);
     if (this.blockAddedHandlers[block.hash]) {
       // Resolve a promise
