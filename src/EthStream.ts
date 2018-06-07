@@ -1,6 +1,5 @@
-import Eth from "ethjs-query";
-// import { action, computed, when, observable, observe } from "mobx";
-import EthjsHttpProvider from "ethjs-provider-http";
+import Web3 from "web3";
+import { HttpProvider, BlockType, Block as Web3Block } from "web3/types";
 import withTimeout from "./util/withTimeout";
 
 class Block {
@@ -8,6 +7,15 @@ class Block {
   parentHash: string;
   number: number;
   childDepth?: number;
+
+  static fromBlock(block: Web3Block) {
+    const newBlock = new Block();
+    newBlock.childDepth = 0;
+    newBlock.hash = block.hash;
+    newBlock.number = parseInt(block.number.toFixed());
+    newBlock.parentHash = block.parentHash;
+    return newBlock;
+  }
 }
 
 interface IBlockSnapshot {
@@ -23,22 +31,37 @@ interface IEthStreamProps {
   fromBlockHash?: string;
   fromBlockNumber?: number;
   fromSnapshot?: Snapshot;
+  onAddBlock?: (block: Block) => void;
+  onRollbackBlock?: (block: Block) => void;
+  onConfirmBlock?: (block: Block) => void;
 }
 
 const BLOCK_CHAIN_LENGTH = 10;
+const DEPTH_TO_FLUSH = BLOCK_CHAIN_LENGTH + 2;
 const DEPTH_TO_ROLLBACK = 5;
 const DEFAULT_DELAY = 1000;
+const DEPTH_TO_CONFIRM = 5;
 
 // const NULL_HASH =
 //   "0x0000000000000000000000000000000000000000000000000000000000000000";
 // const DEFAULT_DELAY = 2000;
 
 export default class EthStream {
-  eth: Eth;
-  blocksToAdd: Block[];
+  web3: Web3;
+  blocksToAdd: Block[] = [];
   addedBlocksByHash: Map<string, Block> = new Map();
+  maxBlockNumber = 0;
 
-  constructor(provider: EthjsHttpProvider, props: IEthStreamProps = {}) {
+  onAddBlock: (block: Block) => void;
+  onRollbackBlock: (block: Block) => void;
+  onConfirmBlock: (block: Block) => void;
+
+  timer: any;
+  isStopped: boolean;
+  isRunning: boolean;
+  isAddingOldBlocks: boolean;
+
+  constructor(provider: HttpProvider, props: IEthStreamProps = {}) {
     // Check jsonRpcUrl
     if (!provider)
       throw new Error(
@@ -54,43 +77,53 @@ export default class EthStream {
       throw new Error(
         "only one allowed: fromBlockHash, fromBlockNumber, fromSnapshot"
       );
-    this.eth = new Eth(provider);
+    this.web3 = new Web3(provider);
     this.onAddBlock = props.onAddBlock || (() => true);
     this.onConfirmBlock = props.onConfirmBlock || (() => true);
     this.onRollbackBlock = props.onRollbackBlock || (() => true);
-    this.fromBlockHash = props.fromBlockHash;
-    this.fromBlockNumber = props.fromBlockNumber;
-    this.fromBlockLoaded = false;
+
+    this.fetchFirstBlock(props);
+  }
+
+  start() {
+    console.log("STARTING");
+    this.isStopped = false;
+    this.getLatestBlock();
+  }
+
+  stop() {
+    this.isStopped = true;
+    clearTimeout(this.timer);
+  }
+
+  async fetchFirstBlock(props: IEthStreamProps) {
     // Start from snapshot
     if (props.fromSnapshot) {
       this.restoreFromSnapshot(props.fromSnapshot);
     } else {
       let fromBlock;
+      console.log("WE HERE");
       if (props.fromBlockHash) {
-        fromBlock = await this.eth.getBlockByHash(props.fromBlockHash);
+        fromBlock = await this.web3.eth.getBlock(
+          props.fromBlockHash as BlockType
+        );
       } else if (props.fromBlockNumber) {
-        fromBlock = await this.eth.getBlockByNumber(props.fromBlockNumber);
+        fromBlock = await this.web3.eth.getBlock(props.fromBlockNumber);
       }
-      this.insertBlock({
-        hash: fromBlock.hash,
-        number: fromBlock.number.toNumber(),
-        parentHash: fromBlock.parentHash
-      });
+      console.log("WE GOT A BLOCK", fromBlock);
+      this.insertBlock(Block.fromBlock(fromBlock));
     }
   }
 
   async getLatestBlock(delay = DEFAULT_DELAY) {
     try {
       const latestBlock = await withTimeout(
-        this.eth.getBlockByNumber("latest", true),
+        this.web3.eth.getBlock("latest"),
         2000
       );
-      this.addBlock({
-        hash: latestBlock.hash,
-        parentHash: latestBlock.parentHash,
-        number: latestBlock.number.toNumber(),
-        childDepth: 0
-      });
+      console.log("Got a new block, adding it");
+
+      this.addBlock(Block.fromBlock(latestBlock));
     } catch (err) {
       console.log("ERROR", err);
       // Silence getBlockByNumber errors
@@ -98,15 +131,57 @@ export default class EthStream {
     this.timer = setTimeout(() => this.getLatestBlock(delay), delay);
   }
 
-  addBlock(block: Block) {
-    // Don't add the same block multiple times
-    if (this.blocksToAdd.some(block => block.hash === block.hash)) return;
-    this.blocksToAdd.push(block);
-    this.blocksToAdd.sort((block1, block2) => block1.number - block2.number);
-    console.log(this.blocksToAdd);
+  async addOldBlocks() {
+    if (this.isStopped || this.isAddingOldBlocks) return;
+    this.isAddingOldBlocks = true;
+    // This is a special function that is run if the fromBlock is too far behind
+    // eth_blockNumber
+    let blocks;
+
+    try {
+      const currentBlockNumber = await this.web3.eth.getBlockNumber();
+      let oldBlockNumber = this.maxBlockNumber + 1;
+      const promises = [];
+      while (
+        oldBlockNumber < currentBlockNumber - BLOCK_CHAIN_LENGTH &&
+        oldBlockNumber - this.maxBlockNumber < 100
+      ) {
+        oldBlockNumber++;
+        promises.push(
+          this.web3.eth
+            .getBlock(oldBlockNumber)
+            .then(block => Block.fromBlock(block))
+        );
+      }
+      blocks = await Promise.all(promises);
+    } catch (e) {
+      console.debug(
+        "[Ethstream] There was a problem loading old blocks, trying again..."
+      );
+      this.isAddingOldBlocks = false;
+      setTimeout(() => this.addOldBlocks(), 1000);
+      return;
+    }
+
+    blocks.forEach(block => {
+      this.insertBlock(block);
+    });
+    console.log("Done adding old blocks");
+    this.isAddingOldBlocks = false;
   }
 
-  getSnapshot(): Snapshot {
+  addBlock(block: Block) {
+    // Don't add the same block multiple times
+    if (this.addedBlocksByHash.has(block.hash)) return;
+    if (this.blocksToAdd.some(bl => bl.hash === block.hash)) return;
+    this.blocksToAdd.push(block);
+    this.blocksToAdd.sort((block1, block2) => block1.number - block2.number);
+
+    // Start a run
+    this.run();
+  }
+
+  takeSnapshot(): Snapshot {
     return Array.from(this.addedBlocksByHash.values()).map(block => ({
       ...block,
       childDepth: block.childDepth || 0
@@ -114,13 +189,8 @@ export default class EthStream {
   }
 
   private async getBlockByHash(hash: string): Promise<Block> {
-    const ethBlock = await this.eth.getBlockByHash(hash, false);
-    return {
-      hash: ethBlock.hash,
-      number: ethBlock.number.toNumber(),
-      parentHash: ethBlock.parentHash,
-      childDepth: 0
-    };
+    const block = await this.web3.eth.getBlock(hash as BlockType);
+    return Block.fromBlock(block);
   }
 
   private flushFlushableBlocks() {
@@ -131,7 +201,7 @@ export default class EthStream {
         maxBlockNumber = block.number;
       }
     }
-    const blockNumberToFlush = maxBlockNumber - BLOCK_CHAIN_LENGTH;
+    const blockNumberToFlush = maxBlockNumber - DEPTH_TO_FLUSH;
     const blockNumberToRollback = maxBlockNumber - DEPTH_TO_ROLLBACK;
     for (let block of blocks) {
       if (block.number < blockNumberToFlush) {
@@ -144,7 +214,21 @@ export default class EthStream {
     }
   }
 
-  private run() {
+  private async run() {
+    console.log("Trying to run with ", this.blocksToAdd.map(b => b.number));
+    if (this.isRunning) return;
+    this.isRunning = true;
+
+    const currentBlockNumber = await this.web3.eth.getBlockNumber();
+    if (currentBlockNumber > this.maxBlockNumber + BLOCK_CHAIN_LENGTH) {
+      // Add old blocks before going on
+
+      this.isRunning = false;
+      await this.addOldBlocks();
+      this.run();
+      return;
+    }
+
     while (this.blocksToAdd.length > 0) {
       const block = this.blocksToAdd.pop();
 
@@ -156,23 +240,30 @@ export default class EthStream {
         this.insertBlock(block);
       } else {
         // We don't have the parent, add the parent to the priority set
-        this.addBlock(block);
+        console.log("trying to add parent");
         this.getBlockByHash(block.parentHash).then(parent => {
+          console.log("Adding parent", parent.number, parent.hash);
           this.addBlock(parent);
+          this.addBlock(block);
         });
       }
     }
+    this.isRunning = false;
   }
 
   private insertBlock(block: Block) {
     // We're ready to insert a leaf block into the tree. Insert it and update
     // childDepths
 
+    this.onAddBlock(block);
+    if (block.number > this.maxBlockNumber) this.maxBlockNumber = block.number;
     block.childDepth = 0;
     this.addedBlocksByHash.set(block.hash, block);
     let parent = this.addedBlocksByHash.get(block.parentHash);
     let childDepth = 1;
     while (parent && parent.childDepth < childDepth) {
+      if (parent.childDepth < childDepth && childDepth === DEPTH_TO_CONFIRM)
+        this.onConfirmBlock(parent);
       parent.childDepth = childDepth;
       childDepth++;
       parent = this.addedBlocksByHash.get(parent.parentHash);
@@ -184,6 +275,8 @@ export default class EthStream {
   restoreFromSnapshot(snapshot: Snapshot) {
     snapshot.forEach(block => {
       this.addedBlocksByHash.set(block.hash, block);
+      if (block.number > this.maxBlockNumber)
+        this.maxBlockNumber = block.number;
     });
   }
 }
