@@ -7,6 +7,7 @@ export class Block {
   hash: string;
   parentHash: string;
   number: number;
+  logsBloom: string;
   childDepth?: number;
 
   static fromBlock(block: Web3Block) {
@@ -15,6 +16,7 @@ export class Block {
     newBlock.hash = block.hash;
     newBlock.number = parseInt(block.number.toFixed());
     newBlock.parentHash = block.parentHash;
+    newBlock.logsBloom = block.logsBloom;
     return newBlock;
   }
 }
@@ -24,6 +26,7 @@ interface IBlockSnapshot {
   parentHash: string;
   number: number;
   childDepth: number;
+  logsBloom: string;
 }
 
 type Snapshot = IBlockSnapshot[];
