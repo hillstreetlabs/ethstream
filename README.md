@@ -2,6 +2,9 @@
 
 Bare-bones block watcher for Ethereum.
 
+For a visual demonstration of what Ethstream is doing under the hood, check out
+[https://ethstream.hillstreetlabs.com].
+
 #### Example
 ```
 import EthStream from "ethstream";

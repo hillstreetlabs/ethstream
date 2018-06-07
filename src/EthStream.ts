@@ -55,12 +55,6 @@ export default class EthStream extends EventEmitter {
   streamSize = DEPTH_TO_FLUSH;
   maxBackfills = this.streamSize;
 
-  onAddBlock: (block: Block) => void;
-  onRollbackBlock: (block: Block) => void;
-  onConfirmBlock: (block: Block) => void;
-
-  onReady: () => void;
-
   timer: any;
   isStopped: boolean;
   isRunning: boolean;
@@ -331,91 +325,3 @@ export default class EthStream extends EventEmitter {
     });
   }
 }
-
-//   @computed
-//   get isEmpty() {
-//     return this.blocks.size === 0;
-//   }
-
-//   get fromBlockNeedsLoading() {
-//     return (
-//       (this.fromBlockHash || this.fromBlockNumber) && !this.fromBlockLoaded
-//     );
-//   }
-
-//   async loadFromBlock() {
-//     let fromBlock;
-//     if (this.fromBlockHash) {
-//       fromBlock = await this.eth.getBlockByHash(this.fromBlockHash, true);
-//     }
-//     if (this.fromBlockNumber) {
-//       fromBlock = await this.eth.getBlockByNumber(this.fromBlockNumber, true);
-//     }
-//     this.fromBlockLoaded = true;
-//     await this.addBlock(fromBlock);
-//     return true;
-//   }
-
-//   takeSnapshot() {
-//     const snapshot = [];
-//     this.blocks.forEach(block => snapshot.push(block.toSnapshot()));
-//     return snapshot;
-//   }
-
-//   async start() {
-//     if (this.fromBlockNeedsLoading) await this.loadFromBlock();
-//     this.getLatestBlock();
-//   }
-
-//   stop() {
-//     clearTimeout(this.timer);
-//   }
-
-//   @action
-//   confirmBlock(hash) {
-//     this.onConfirmBlock(this.blocks.get(hash));
-//   }
-
-//   @action
-//   flushBlock(hash) {
-//     const flushBlock = this.blocks.get(hash);
-//     if (!flushBlock.isConfirmed) {
-//       this.onRollbackBlock(flushBlock);
-//     }
-//     this.blocks.delete(hash);
-//   }
-
-//   addBlock(block) {
-//     // Return if block isn't complete
-//     if (!block || !block.hash || !block.number || !block.parentHash)
-//       return false;
-
-//     this.history.addBlock(block);
-
-//     // Check for fromBlock
-//     if (this.fromBlockNeedsLoading) await this.loadFromBlock();
-//     // Return if block already in history
-//     if (this.blocks.has(block.hash)) return false;
-//     // Check for parent
-//     if (
-//       !this.isEmpty &&
-//       block.parentHash != NULL_HASH &&
-//       !this.blocks.has(block.parentHash)
-//     ) {
-//       const parentBlock = await this.eth.getBlockByHash(block.parentHash, true);
-//       await this.addBlock(parentBlock);
-//     }
-//     // Add block
-//     const newBlock = new Block(this, block);
-//     this.blocks.set(block.hash, newBlock);
-//     this.onAddBlock(newBlock);
-//     // Re-count depths
-//     newBlock.setChildrenDepth(0);
-//     // Update headBlockNumber
-//     const blockNumber = block.number.toNumber();
-//     if (blockNumber > this.headBlockNumber) {
-//       this.headBlockNumber = blockNumber;
-//     }
-//     return newBlock;
-//   }
-// }
