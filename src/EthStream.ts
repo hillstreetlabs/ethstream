@@ -41,7 +41,6 @@ interface IEthStreamProps {
 }
 
 const DEPTH_TO_FLUSH = 12;
-const DEPTH_TO_ROLLBACK = 5;
 const DEPTH_TO_CONFIRM = 5;
 const DEFAULT_DELAY = 1000;
 const BATCH_SIZE = 100;
@@ -54,7 +53,7 @@ export default class EthStream extends EventEmitter {
 
   numConfirmations = DEPTH_TO_CONFIRM;
   streamSize = DEPTH_TO_FLUSH;
-  maxBackfills = this.streamSize + 1;
+  maxBackfills = this.streamSize;
 
   onAddBlock: (block: Block) => void;
   onRollbackBlock: (block: Block) => void;
@@ -90,6 +89,7 @@ export default class EthStream extends EventEmitter {
 
     if (props.streamSize) {
       this.streamSize = props.streamSize;
+      this.maxBackfills = this.streamSize;
       if (props.numConfirmations && props.numConfirmations >= this.streamSize) {
         throw new Error("numConfirmations must be less than streamSize");
       }
@@ -179,18 +179,18 @@ export default class EthStream extends EventEmitter {
     let blocks;
     try {
       const currentBlockNumber = await this.web3.eth.getBlockNumber();
-      let oldBlockNumber = this.maxBlockNumber + 1;
+      let blockNumber = this.maxBlockNumber + 1;
       const promises = [];
       while (
-        oldBlockNumber < currentBlockNumber - this.maxBackfills &&
-        oldBlockNumber - this.maxBlockNumber < BATCH_SIZE
+        blockNumber < currentBlockNumber - this.maxBackfills + 1 &&
+        blockNumber - this.maxBlockNumber < BATCH_SIZE
       ) {
-        oldBlockNumber++;
         promises.push(
           this.web3.eth
-            .getBlock(oldBlockNumber)
+            .getBlock(blockNumber)
             .then(block => Block.fromBlock(block))
         );
+        blockNumber++;
       }
       blocks = await Promise.all(promises);
     } catch (e) {
@@ -229,30 +229,6 @@ export default class EthStream extends EventEmitter {
       return Block.fromBlock(block);
     } catch (e) {
       this.emit("error", "Block with hash " + hash + " not found");
-    }
-  }
-
-  private flushFlushableBlocks() {
-    const blocks = Array.from(this.addedBlocksByHash.values());
-    let maxBlockNumber = 0;
-    for (let block of blocks) {
-      if (block.number > maxBlockNumber) {
-        maxBlockNumber = block.number;
-      }
-    }
-    const depthToRollback = this.numConfirmations;
-    const blockNumberToFlush = maxBlockNumber - this.streamSize;
-    const blockNumberToRollback = maxBlockNumber - depthToRollback;
-    for (let block of blocks) {
-      if (
-        block.number < blockNumberToFlush ||
-        block.number + block.childDepth < blockNumberToRollback
-      ) {
-        this.addedBlocksByHash.delete(block.hash);
-        if (block.childDepth < depthToRollback) {
-          this.emit("rollback", block);
-        }
-      }
     }
   }
 
@@ -295,6 +271,30 @@ export default class EthStream extends EventEmitter {
     this.isRunning = false;
   }
 
+  private flushFlushableBlocks() {
+    const blocks = Array.from(this.addedBlocksByHash.values());
+    let maxBlockNumber = 0;
+    for (let block of blocks) {
+      if (block.number > maxBlockNumber) {
+        maxBlockNumber = block.number;
+      }
+    }
+    const depthToRollback = this.numConfirmations;
+    const blockNumberToFlush = maxBlockNumber - this.streamSize;
+    const blockNumberToRollback = maxBlockNumber - depthToRollback;
+    for (let block of blocks) {
+      if (
+        block.number < blockNumberToFlush ||
+        block.number + block.childDepth < blockNumberToRollback
+      ) {
+        this.addedBlocksByHash.delete(block.hash);
+        if (block.childDepth < depthToRollback) {
+          this.emit("rollback", block);
+        }
+      }
+    }
+  }
+
   private insertBlock(block: Block) {
     // We're ready to insert a leaf block into the tree. Insert it and update
     // childDepths
@@ -311,11 +311,10 @@ export default class EthStream extends EventEmitter {
     let parent = this.addedBlocksByHash.get(block.parentHash);
     let childDepth = 1;
     while (parent && parent.childDepth < childDepth) {
-      if (
-        parent.childDepth < childDepth &&
-        childDepth === this.numConfirmations
-      )
+      if (childDepth === this.numConfirmations) {
+        // Parent now has numConfirmations children, lets confirm it
         this.emit("confirm", parent);
+      }
       parent.childDepth = childDepth;
       childDepth++;
       parent = this.addedBlocksByHash.get(parent.parentHash);

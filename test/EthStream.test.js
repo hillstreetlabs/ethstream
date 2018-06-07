@@ -325,4 +325,33 @@ describe("addBlock", () => {
     await Promise.all([stream.addBlock(newBlock), stream.addBlock(newBlock)]);
     expect(removedBlocks).toEqual([uncleBlock.hash]);
   });
+
+  fit("adds all old blocks, even if its many", async () => {
+    const fromBlock = await genesisBlock();
+    const hashes = [fromBlock.hash];
+
+    for (let i = 0; i < 100; i++) {
+      hashes.push((await mineBlock()).hash);
+    }
+
+    const stream = getStream({
+      streamSize: 10,
+      numConfirmations: 5,
+      fromBlockHash: fromBlock.hash
+    });
+    const toBlock = await mineBlock();
+    hashes.push(toBlock.hash);
+    stream.addBlock(toBlock);
+    await stream.promise("live");
+    expect(addedBlocks).toEqual(hashes);
+
+    for (let i = 0; i < 10; i++) {
+      const newBlock = await mineBlock();
+      hashes.push(newBlock.hash);
+      await stream.addBlock(newBlock);
+    }
+
+    expect(addedBlocks).toEqual(hashes);
+    expect(removedBlocks.length).toEqual(0);
+  });
 });
