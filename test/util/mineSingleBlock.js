@@ -1,9 +1,9 @@
 import EthRpc from "ethjs-rpc";
-import Eth from "ethjs";
+import Web3 from "web3";
 
 export default web3Provider => {
   const rpc = new EthRpc(web3Provider);
-  const eth = new Eth(web3Provider);
+  const eth = new Web3(web3Provider).eth;
 
   return new Promise((resolve, reject) => {
     rpc.sendAsync(
@@ -14,7 +14,7 @@ export default web3Provider => {
       },
       async (err, result) => {
         if (err) return reject(err);
-        const latest = await eth.getBlockByNumber("latest", true);
+        const latest = await eth.getBlock("latest", true);
         resolve(latest);
       }
     );

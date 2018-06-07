@@ -24,6 +24,7 @@
     "babel-preset-es2015": "^6.24.1",
     "babel-preset-stage-0": "^6.24.1",
     "crypto": "^1.0.1",
+    "ethjs": "^0.4.0",
     "ethjs-rpc": "^0.2.0",
     "ganache-core": "2.0.2",
     "jest": "^22.4.3",
