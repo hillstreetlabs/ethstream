@@ -1,31 +1,30 @@
 import Ganache from "ganache-core";
-import Eth from "ethjs";
-import EthStream from "../src/EthStream";
+import Web3 from "web3";
+import EthStream, { Block } from "../dist/EthStream";
 import mineSingleBlock from "./util/mineSingleBlock";
 import { randomBlockHash } from "./util/crypto";
 
-let web3Provider, eth, mineBlock;
+let web3Provider, mineBlock;
 
-beforeEach(() => {
-  web3Provider = Ganache.provider();
-  eth = new Eth(web3Provider);
-  mineBlock = () => mineSingleBlock(web3Provider);
-});
+function genesisBlock() {
+  return new Web3(web3Provider).eth.getBlock("latest");
+}
 
 describe("constructor", () => {
-  test("succeeds with valid provider", () => {
+  beforeEach(() => {
+    web3Provider = Ganache.provider();
+    mineBlock = () => mineSingleBlock(web3Provider);
+  });
+
+  it("succeeds with valid provider", () => {
     expect(() => new EthStream(web3Provider)).toBeTruthy();
   });
 
-  test("fails without a provider", () => {
+  it("fails without a provider", () => {
     expect(() => new EthStream(null)).toThrow();
   });
 
-  test("fails with a host URL", () => {
-    expect(() => new EthStream("http://localhost:8545")).toThrow();
-  });
-
-  test("fails with fromBlockHash and fromBlockNumber props", () => {
+  it("fails with fromBlockHash and fromBlockNumber props", () => {
     const props = {
       fromBlockHash: randomBlockHash(),
       fromBlockNumber: 5596897
@@ -33,7 +32,7 @@ describe("constructor", () => {
     expect(() => new EthStream(web3Provider, props)).toThrow();
   });
 
-  test("fails with fromSnapshot and fromBlockNumber", () => {
+  it("fails with fromSnapshot and fromBlockNumber", () => {
     const props = {
       fromBlockNumber: 5596897,
       fromSnapshot: [{}]
@@ -41,16 +40,16 @@ describe("constructor", () => {
     expect(() => new EthStream(web3Provider, props)).toThrow();
   });
 
-  test("succeeds with fromSnapshot", () => {
+  it("succeeds with fromSnapshot", () => {
     const stream = new EthStream(web3Provider, {
       fromSnapshot: [
         { hash: randomBlockHash(), number: 1, parentHash: randomBlockHash() }
       ]
     });
-    expect(stream.blocks.size).toEqual(1);
+    expect(stream.addedBlocksByHash.size).toEqual(1);
   });
 
-  test("does not call addBlock with fromSnapshot", () => {
+  it("does not call addBlock with fromSnapshot", () => {
     const addedBlocks = [];
     const stream = new EthStream(web3Provider, {
       fromSnapshot: [
@@ -61,7 +60,7 @@ describe("constructor", () => {
     expect(addedBlocks).toEqual([]);
   });
 
-  test("fails when numConfirmations > streamSize", () => {
+  it("fails when numConfirmations > streamSize", () => {
     const props = {
       numConfirmations: 4,
       streamSize: 3
@@ -71,42 +70,55 @@ describe("constructor", () => {
 });
 
 describe("addBlock", () => {
+  beforeEach(() => {
+    web3Provider = Ganache.provider();
+    mineBlock = () => mineSingleBlock(web3Provider);
+  });
+
   // For sharing variables
-  let addedBlocks, confirmedBlocks, removedBlocks, stream;
+  let addedBlocks, confirmedBlocks, removedBlocks, getStream;
 
   beforeEach(() => {
     addedBlocks = [];
     confirmedBlocks = [];
     removedBlocks = [];
-    stream = new EthStream(web3Provider, {
-      onAddBlock: block => addedBlocks.push(block.hash),
-      onConfirmBlock: block => confirmedBlocks.push(block.hash),
-      onRollbackBlock: block => removedBlocks.push(block.hash),
-      numConfirmations: 2,
-      streamSize: 3
-    });
+    getStream = (options = {}) =>
+      new EthStream(web3Provider, {
+        onAddBlock: block => addedBlocks.push(block.hash),
+        onConfirmBlock: block => confirmedBlocks.push(block.hash),
+        onRollbackBlock: block => removedBlocks.push(block.hash),
+        numConfirmations: 2,
+        streamSize: 3,
+        ...options
+      });
   });
 
-  test("adds a new block", async () => {
-    await stream.addBlock({
-      hash: "foo",
+  it("fails to add a fake block", async () => {
+    const stream = getStream();
+    await stream.promise("ready");
+    stream.addBlock({
+      hash: randomBlockHash(),
       number: 1,
       parentHash: randomBlockHash()
     });
-    expect(addedBlocks).toEqual(["foo"]);
+    const error = await stream.promise("error");
+    expect(error).toBeTruthy();
   });
 
-  test("adds a new block by mining", async () => {
+  it("adds a new mined block", async () => {
+    const stream = getStream();
+    await stream.promise("ready");
     const newBlock = await mineBlock();
     await stream.addBlock(newBlock);
-    expect(addedBlocks).toEqual([newBlock.hash]);
+    expect(addedBlocks).toContain(newBlock.hash);
   });
 
-  test("adds parent blocks before child", async () => {
+  it("adds parent blocks before child", async () => {
     const rootBlock = await mineBlock();
-    await stream.addBlock(rootBlock);
     const parentBlock = await mineBlock();
     const newBlock = await mineBlock();
+    const stream = getStream({ streamSize: 2, numConfirmations: 1 });
+    await stream.promise("ready");
     await stream.addBlock(newBlock);
     expect(addedBlocks).toEqual([
       rootBlock.hash,
@@ -115,27 +127,58 @@ describe("addBlock", () => {
     ]);
   });
 
-  test("fails to add block with invalid parent hash", async () => {
+  it("automatically adds the last streamSize blocks if no fromBlock is specified", async () => {
+    const block1 = await mineBlock();
+    const block2 = await mineBlock();
+    const block3 = await mineBlock();
+    const block4 = await mineBlock();
+    const block5 = await mineBlock();
+    const stream = getStream({ streamSize: 3 });
+    await stream.promise("ready");
+    stream.start();
+    await stream.promise("live");
+    expect(addedBlocks).toEqual([
+      block2.hash,
+      block3.hash,
+      block4.hash,
+      block5.hash
+    ]);
+  });
+
+  it("fails to add block with invalid parent hash", async () => {
+    const stream = getStream();
+    await stream.promise("ready");
     const fromBlock = await mineBlock();
     await stream.addBlock(fromBlock);
-    await expect(
-      stream.addBlock({
-        hash: randomBlockHash(),
-        number: parseInt(fromBlock.number) + 1,
-        parentHash: randomBlockHash()
-      })
-    ).rejects.toThrow();
-
-    expect(addedBlocks).toEqual([fromBlock.hash]);
+    stream.addBlock({
+      hash: randomBlockHash(),
+      number: parseInt(fromBlock.number) + 1,
+      parentHash: randomBlockHash()
+    });
+    const error = await stream.promise("error");
+    expect(error).toBeTruthy();
   });
 
-  test("adds new block and backfills to fromBlockNumber", async () => {
+  it("adds new block and backfills to fromBlockNumber", async () => {
     await mineBlock(); // Make sure there is a block before fromBlock
     const fromBlock = await mineBlock();
-    stream = new EthStream(web3Provider, {
-      onAddBlock: block => addedBlocks.push(block.hash),
-      fromBlockNumber: parseInt(fromBlock.number)
-    });
+    const stream = getStream({ fromBlockNumber: parseInt(fromBlock.number) });
+    await stream.promise("ready");
+    const parentBlock = await mineBlock();
+    const newBlock = await mineBlock();
+    const promise = stream.addBlock(newBlock);
+    await promise;
+    expect(addedBlocks).toEqual([
+      fromBlock.hash,
+      parentBlock.hash,
+      newBlock.hash
+    ]);
+  });
+
+  it("adds new block and backfills to fromBlockHash", async () => {
+    await mineBlock(); // Make sure there is a block before fromBlock
+    const fromBlock = await mineBlock();
+    const stream = getStream({ fromBlockHash: fromBlock.hash });
     const parentBlock = await mineBlock();
     const newBlock = await mineBlock();
     await stream.addBlock(newBlock);
@@ -146,77 +189,48 @@ describe("addBlock", () => {
     ]);
   });
 
-  test("adds new block and backfills to fromBlockHash", async () => {
+  it("adds new block and backfills to fromSnapshot", async () => {
     await mineBlock(); // Make sure there is a block before fromBlock
     const fromBlock = await mineBlock();
-    stream = new EthStream(web3Provider, {
-      onAddBlock: block => addedBlocks.push(block.hash),
-      fromBlockHash: fromBlock.hash
-    });
-    const parentBlock = await mineBlock();
-    const newBlock = await mineBlock();
-    await stream.addBlock(newBlock);
-    expect(addedBlocks).toEqual([
-      fromBlock.hash,
-      parentBlock.hash,
-      newBlock.hash
-    ]);
-  });
-
-  test("adds new block and backfills to fromSnapshot", async () => {
-    await mineBlock(); // Make sure there is a block before fromBlock
-    const fromBlock = await mineBlock();
-    stream = new EthStream(web3Provider, {
-      onAddBlock: block => addedBlocks.push(block.hash),
-      fromSnapshot: [fromBlock]
-    });
+    const stream = getStream({ fromSnapshot: [fromBlock] });
     const parentBlock = await mineBlock();
     const newBlock = await mineBlock();
     await stream.addBlock(newBlock);
     expect(addedBlocks).toEqual([parentBlock.hash, newBlock.hash]);
   });
 
-  test("adds new block and backfills to blockNumber of fromSnapshot", async () => {
+  it("rolls back false unconfirmed snapshotted blocks", async () => {
     await mineBlock(); // Make sure there is a block before fromBlock
-    const fromBlock = await mineBlock();
-    stream = new EthStream(web3Provider, {
-      onAddBlock: block => addedBlocks.push(block.hash),
+    const fromBlock = Block.fromBlock(await mineBlock());
+    const falseBlock1 = randomBlockHash();
+    const falseBlock2 = randomBlockHash();
+    const stream = getStream({
+      streamSize: 2,
+      numConfirmations: 1,
       fromSnapshot: [
-        {
-          hash: randomBlockHash(),
-          number: parseInt(fromBlock.number),
-          parentHash: randomBlockHash()
-        }
+        fromBlock,
+        { ...fromBlock, hash: falseBlock1 },
+        { ...fromBlock, hash: falseBlock2 }
       ]
     });
-    const newBlock = await mineBlock();
-    await stream.addBlock(newBlock);
-    expect(addedBlocks).toEqual([fromBlock.hash, newBlock.hash]);
-  });
-
-  test("adds new block that is older than fromBlockHash", async () => {
     await mineBlock();
-    const fromBlock = await mineBlock();
-    stream = new EthStream(web3Provider, {
-      onAddBlock: block => addedBlocks.push(block.hash),
-      fromBlockHash: fromBlock.hash
-    });
-    const newBlock = {
-      hash: randomBlockHash(),
-      number: parseInt(fromBlock.number) - 1,
-      parentHash: randomBlockHash()
-    };
-    await stream.addBlock(newBlock);
-    expect(addedBlocks).toEqual([fromBlock.hash, newBlock.hash]);
+    await mineBlock();
+    await mineBlock();
+    stream.addBlock(await mineBlock());
+    await stream.promise("live");
+    expect(removedBlocks).toEqual([falseBlock1, falseBlock2]);
   });
 
-  test("adds new blocks asynchronously", async () => {
-    const fromBlock = await mineBlock();
-    await stream.addBlock(fromBlock);
+  it("adds new blocks asynchronously", async () => {
+    const fromBlock = await genesisBlock();
+    const stream = getStream();
+    await stream.promise("ready");
     const parentBlock1 = await mineBlock();
     const parentBlock2 = await mineBlock();
     const newBlock = await mineBlock();
-    await Promise.all([stream.addBlock(newBlock), stream.addBlock(newBlock)]);
+    stream.addBlock(newBlock);
+    stream.addBlock(newBlock);
+    await stream.promise("live");
     expect(addedBlocks).toEqual([
       fromBlock.hash,
       parentBlock1.hash,
@@ -225,18 +239,20 @@ describe("addBlock", () => {
     ]);
   });
 
-  test("confirms parent block", async () => {
-    const fromBlock = await mineBlock();
-    await stream.addBlock(fromBlock);
+  it("confirms parent block", async () => {
+    const fromBlock = await genesisBlock();
+    const stream = getStream();
+    await stream.promise("ready");
     await mineBlock();
     const newBlock = await mineBlock();
     await stream.addBlock(newBlock);
     expect(confirmedBlocks).toEqual([fromBlock.hash]);
   });
 
-  test("confirms parent blocks in order", async () => {
-    const confirmBlock1 = await mineBlock();
-    await stream.addBlock(confirmBlock1);
+  it("confirms parent blocks in order", async () => {
+    const confirmBlock1 = await genesisBlock();
+    const stream = getStream();
+    await stream.promise("ready");
     const confirmBlock2 = await mineBlock();
     const parentBlock = await mineBlock();
     //await stream.addBlock(parentBlock);
@@ -246,7 +262,8 @@ describe("addBlock", () => {
     expect(confirmedBlocks).toEqual([confirmBlock1.hash, confirmBlock2.hash]);
   });
 
-  test("removes uncle block", async () => {
+  it("removes uncle block", async () => {
+    const fromBlock = await genesisBlock();
     await mineBlock();
     await mineBlock();
     await mineBlock();
@@ -254,15 +271,18 @@ describe("addBlock", () => {
     const uncleBlock = {
       number: parseInt(newBlock.number) - 3,
       hash: randomBlockHash(),
-      parentHash: randomBlockHash()
+      parentHash: fromBlock.hash
     };
+    const stream = getStream({ streamSize: 4 });
+    await stream.promise("ready");
     await stream.addBlock(uncleBlock);
     expect(removedBlocks).toEqual([]);
     await stream.addBlock(newBlock);
     expect(removedBlocks).toEqual([uncleBlock.hash]);
   });
 
-  test("removes uncle blocks in order", async () => {
+  it("removes uncle blocks in order", async () => {
+    const fromBlock = await genesisBlock();
     await mineBlock();
     await mineBlock();
     await mineBlock();
@@ -271,13 +291,15 @@ describe("addBlock", () => {
     const uncleBlock1 = {
       number: parseInt(newBlock.number) - 4,
       hash: randomBlockHash(),
-      parentHash: randomBlockHash()
+      parentHash: fromBlock.hash
     };
     const uncleBlock2 = {
       number: parseInt(newBlock.number) - 3,
       hash: randomBlockHash(),
       parentHash: uncleBlock1.hash
     };
+    const stream = getStream({ streamSize: 5 });
+    await stream.promise("ready");
     await stream.addBlock(uncleBlock1);
     expect(removedBlocks).toEqual([]);
     await stream.addBlock(uncleBlock2);
@@ -286,7 +308,8 @@ describe("addBlock", () => {
     expect(removedBlocks).toEqual([uncleBlock1.hash, uncleBlock2.hash]);
   });
 
-  test("removes uncle block once when adding blocks asynchronously", async () => {
+  it("removes uncle block once when adding blocks asynchronously", async () => {
+    const fromBlock = await genesisBlock();
     await mineBlock();
     await mineBlock();
     await mineBlock();
@@ -294,10 +317,41 @@ describe("addBlock", () => {
     const uncleBlock = {
       number: parseInt(newBlock.number) - 3,
       hash: randomBlockHash(),
-      parentHash: randomBlockHash()
+      parentHash: fromBlock.hash
     };
+    const stream = getStream({ streamSize: 4 });
+    await stream.promise("ready");
     await stream.addBlock(uncleBlock);
     await Promise.all([stream.addBlock(newBlock), stream.addBlock(newBlock)]);
     expect(removedBlocks).toEqual([uncleBlock.hash]);
+  });
+
+  fit("adds all old blocks, even if its many", async () => {
+    const fromBlock = await genesisBlock();
+    const hashes = [fromBlock.hash];
+
+    for (let i = 0; i < 100; i++) {
+      hashes.push((await mineBlock()).hash);
+    }
+
+    const stream = getStream({
+      streamSize: 10,
+      numConfirmations: 5,
+      fromBlockHash: fromBlock.hash
+    });
+    const toBlock = await mineBlock();
+    hashes.push(toBlock.hash);
+    stream.addBlock(toBlock);
+    await stream.promise("live");
+    expect(addedBlocks).toEqual(hashes);
+
+    for (let i = 0; i < 10; i++) {
+      const newBlock = await mineBlock();
+      hashes.push(newBlock.hash);
+      await stream.addBlock(newBlock);
+    }
+
+    expect(addedBlocks).toEqual(hashes);
+    expect(removedBlocks.length).toEqual(0);
   });
 });

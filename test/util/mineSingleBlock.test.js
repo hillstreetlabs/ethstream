@@ -1,9 +1,9 @@
 import Ganache from "ganache-core";
-import Eth from "ethjs";
+import Web3 from "web3";
 import mineSingleBlock from "./mineSingleBlock";
 
 const web3Provider = Ganache.provider();
-const eth = new Eth(web3Provider);
+const eth = new Web3(web3Provider).eth;
 
 describe("mineSingleBlock", () => {
   test("succeeds", async () => {
@@ -19,15 +19,15 @@ describe("mineSingleBlock", () => {
   });
 
   test("updates latest block", async () => {
-    const block = await eth.getBlockByNumber("latest", true);
+    const block = await eth.getBlock("latest", true);
     await mineSingleBlock(web3Provider);
-    const newBlock = await eth.getBlockByNumber("latest", true);
+    const newBlock = await eth.getBlock("latest", true);
     expect(newBlock.hash).not.toEqual(block.hash);
   });
 
   test("returns new block", async () => {
     const newBlock = await mineSingleBlock(web3Provider);
-    const latestBlock = await eth.getBlockByNumber("latest", true);
+    const latestBlock = await eth.getBlock("latest", true);
     expect(newBlock.hash).toEqual(latestBlock.hash);
   });
 });
