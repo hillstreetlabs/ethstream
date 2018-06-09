@@ -5,44 +5,52 @@ defaults: &defaults
 
 version: 2
 jobs:
-  build: &build
+  build:
     <<: *defaults
 
     steps:
       - checkout
       - restore_cache:
           keys:
-            - v1-ethstream-{{ checksum "package.json" }}
-            - v1-ethstream-
+            - v2-ethstream-{{ checksum "package.json" }}
+            - v2-ethstream-
       - run: yarn install
       - save_cache:
-          key: v1-ethstream-{{ checksum "package.json" }}
+          key: v2-ethstream-{{ checksum "package.json" }}
           paths:
-            ~/ethstream
+            ./node_modules
       - run: yarn build
       - run: yarn test
 
   publish:
-    <<: *build
+    <<: *defaults
 
-    steps+:
+    steps:
       - checkout
       - restore_cache:
           keys:
-            - v1-ethstream-{{ checksum "package.json" }}
-            - v1-ethstream-
+            - v2-ethstream-{{ checksum "package.json" }}
+            - v2-ethstream-
       - run: yarn install
       - save_cache:
-          key: v1-ethstream-{{ checksum "package.json" }}
+          key: v2-ethstream-{{ checksum "package.json" }}
           paths:
-            ~/ethstream
+            ./node_modules
       - run: yarn build
-      - run: yarn test
       - run:
           name: Write NPM Token to ~/.npmrc
           command: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
       - run:
           name: Publish to NPM
           command: npm publish
-    tags:
-      only: /v.*/
+workflows:
+  version: 2
+  build-publish:
+    jobs:
+      - build
+      - publish:
+          requires:
+            - build
+          filters:
+            tags:
+              only: /v.*/
