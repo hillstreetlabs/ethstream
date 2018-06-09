@@ -5,42 +5,44 @@ defaults: &defaults
 
 version: 2
 jobs:
-  deploy:
+  build: &build
     <<: *defaults
 
     steps:
       - checkout
+      - restore_cache:
+          keys:
+            - v1-ethstream-{{ checksum "package.json" }}
+            - v1-ethstream-
+      - run: yarn install
+      - save_cache:
+          key: v1-ethstream-{{ checksum "package.json" }}
+          paths:
+            ~/ethstream
+      - run: yarn build
+      - run: yarn test
 
-      - run:
-          name: Install dependencies
-          command: yarn install
+  publish:
+    <<: *build
 
-      - run:
-          name: Run tests
-          command: yarn test
-
+    steps+:
+      - checkout
+      - restore_cache:
+          keys:
+            - v1-ethstream-{{ checksum "package.json" }}
+            - v1-ethstream-
+      - run: yarn install
+      - save_cache:
+          key: v1-ethstream-{{ checksum "package.json" }}
+          paths:
+            ~/ethstream
+      - run: yarn build
+      - run: yarn test
       - run:
           name: Write NPM Token to ~/.npmrc
           command: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
-
-      - run:
-          name: Set git config for NPM
-          command: |
-              git config user.email "bot@hillstreetlabs.com"
-              git config user.name "Hill Street Labs Bot"
-      - run:
-          name: Bump NPM version
-          command: npm version patch -m "%s [skip ci]"
-
       - run:
           name: Publish to NPM
           command: npm publish
-
-      - run: git push --follow-tags
-
-workflows:
-  version: 2
-
-  build:
-    jobs:
-      - deploy
+    tags:
+      only: /v.*/
