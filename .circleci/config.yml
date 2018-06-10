@@ -5,42 +5,19 @@ defaults: &defaults
 
 version: 2
 jobs:
-  deploy:
+  build:
     <<: *defaults
 
     steps:
       - checkout
-
-      - run:
-          name: Install dependencies
-          command: yarn install
-
-      - run:
-          name: Run tests
-          command: yarn test
-
-      - run:
-          name: Write NPM Token to ~/.npmrc
-          command: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
-
-      - run:
-          name: Set git config for NPM
-          command: |
-              git config user.email "bot@hillstreetlabs.com"
-              git config user.name "Hill Street Labs Bot"
-      - run:
-          name: Bump NPM version
-          command: npm version patch -m "%s [skip ci]"
-
-      - run:
-          name: Publish to NPM
-          command: npm publish
-
-      - run: git push --follow-tags
-
-workflows:
-  version: 2
-
-  build:
-    jobs:
-      - deploy
+      - restore_cache:
+          keys:
+            - v2-ethstream-{{ checksum "package.json" }}
+            - v2-ethstream-
+      - run: yarn install
+      - save_cache:
+          key: v2-ethstream-{{ checksum "package.json" }}
+          paths:
+            ./node_modules
+      - run: yarn build
+      - run: yarn test

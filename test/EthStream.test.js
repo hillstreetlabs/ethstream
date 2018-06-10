@@ -326,7 +326,7 @@ describe("addBlock", () => {
     expect(removedBlocks).toEqual([uncleBlock.hash]);
   });
 
-  fit("adds all old blocks, even if its many", async () => {
+  it("adds all old blocks, even if it's many", async () => {
     const fromBlock = await genesisBlock();
     const hashes = [fromBlock.hash];
 

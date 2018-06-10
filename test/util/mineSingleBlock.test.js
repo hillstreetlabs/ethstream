@@ -12,9 +12,9 @@ describe("mineSingleBlock", () => {
   });
 
   test("updates block number", async () => {
-    const blockNumber = parseInt(await eth.blockNumber());
+    const blockNumber = await eth.getBlockNumber();
     await mineSingleBlock(web3Provider);
-    const newBlockNumber = parseInt(await eth.blockNumber());
+    const newBlockNumber = await eth.getBlockNumber();
     expect(newBlockNumber).toEqual(blockNumber + 1);
   });
 
