@@ -109,7 +109,13 @@ export default class EthStream extends EventEmitter {
 
   stop() {
     this.isStopped = true;
-    clearTimeout(this.timer);
+  }
+
+  safeTimeout(func: () => void, timeout: number) {
+    setTimeout(() => {
+      if (this.isStopped) return;
+      func();
+    }, timeout);
   }
 
   addBlock(web3Block: Web3Block) {
@@ -134,17 +140,23 @@ export default class EthStream extends EventEmitter {
       this.restoreFromSnapshot(props.fromSnapshot);
     } else {
       let fromBlock;
-      if (props.fromBlockHash) {
-        fromBlock = await this.web3.eth.getBlock(
-          props.fromBlockHash as BlockType
-        );
-      } else if (props.fromBlockNumber) {
-        fromBlock = await this.web3.eth.getBlock(props.fromBlockNumber);
-      } else {
-        const currentBlockNumber = await this.web3.eth.getBlockNumber();
-        fromBlock = await this.web3.eth.getBlock(
-          Math.max(0, currentBlockNumber - this.streamSize)
-        );
+      try {
+        if (props.fromBlockHash) {
+          fromBlock = await this.web3.eth.getBlock(
+            props.fromBlockHash as BlockType
+          );
+        } else if (props.fromBlockNumber) {
+          fromBlock = await this.web3.eth.getBlock(props.fromBlockNumber);
+        } else {
+          const currentBlockNumber = await this.web3.eth.getBlockNumber();
+          fromBlock = await this.web3.eth.getBlock(
+            Math.max(0, currentBlockNumber - this.streamSize)
+          );
+        }
+      } catch (e) {
+        // Try fetching the first block again in a few
+        this.safeTimeout(() => this.fetchFirstBlock(props), 3000);
+        return;
       }
       this.insertBlock(Block.fromBlock(fromBlock));
     }
@@ -161,7 +173,7 @@ export default class EthStream extends EventEmitter {
     } catch (err) {
       // Silence getBlockByNumber errors
     }
-    this.timer = setTimeout(() => this.getLatestBlock(delay), delay);
+    this.safeTimeout(() => this.getLatestBlock(delay), delay);
   }
 
   async addOldBlocks() {
@@ -169,7 +181,7 @@ export default class EthStream extends EventEmitter {
     // eth_blockNumber
 
     // No-reentry
-    if (this.isStopped || this.isAddingOldBlocks) return;
+    if (this.isAddingOldBlocks) return;
     this.isAddingOldBlocks = true;
 
     // Try to get at most BATCH_SIZE blocks, stopping if we meet
@@ -198,7 +210,7 @@ export default class EthStream extends EventEmitter {
         "[Ethstream] There was a problem loading old blocks, trying again..."
       );
       this.isAddingOldBlocks = false;
-      setTimeout(() => this.addOldBlocks(), 3000);
+      this.safeTimeout(() => this.addOldBlocks(), 3000);
       return;
     }
 
@@ -236,7 +248,16 @@ export default class EthStream extends EventEmitter {
     if (this.isRunning) return;
     this.isRunning = true;
 
-    const currentBlockNumber = await this.web3.eth.getBlockNumber();
+    let currentBlockNumber;
+    try {
+      currentBlockNumber = await this.web3.eth.getBlockNumber();
+    } catch (e) {
+      // Try running again in a few
+      this.isRunning = false;
+      this.safeTimeout(() => this.run(), 3000);
+      return;
+    }
+
     if (currentBlockNumber > this.maxBlockNumber + this.maxBackfills) {
       // Add old blocks before going on
       this.isRunning = false;
