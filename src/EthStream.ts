@@ -21,7 +21,7 @@ export class Block {
   }
 }
 
-interface IBlockSnapshot {
+export interface IBlockSnapshot {
   hash: string;
   parentHash: string;
   number: number;
@@ -29,9 +29,9 @@ interface IBlockSnapshot {
   logsBloom: string;
 }
 
-type Snapshot = IBlockSnapshot[];
+export type Snapshot = IBlockSnapshot[];
 
-interface IEthStreamProps {
+export interface IEthStreamProps {
   fromBlockHash?: string;
   fromBlockNumber?: number;
   fromSnapshot?: Snapshot;

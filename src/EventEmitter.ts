@@ -1,7 +1,7 @@
-type EventHandler = (...args: any[]) => void;
+export type EventHandler = (...args: any[]) => void;
 
 export default class EventEmitter {
-  listeners: { [event: string]: EventHandler[] } = {};
+  protected listeners: { [event: string]: EventHandler[] } = {};
 
   on(event: string, listener: EventHandler) {
     if (typeof this.listeners[event] === "undefined")
