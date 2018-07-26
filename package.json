@@ -1,6 +1,6 @@
 {
   "name": "ethstream",
-  "version": "1.0.0-alpha.2",
+  "version": "1.0.0",
   "description": "Bare-bones block watcher for Ethereum",
   "main": "dist/index.js",
   "repository": "https://github.com/hillstreetlabs/ethstream",
@@ -8,7 +8,8 @@
   "license": "MIT",
   "scripts": {
     "dev": "tsc --watch",
-    "build": "tsc",
+    "build:clean": "rm -rf dist/",
+    "build": "npm run build:clean && tsc",
     "prepublishOnly": "npm run build",
     "test": "jest"
   },
