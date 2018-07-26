@@ -40,7 +40,7 @@ const anotherStream = new EthStream(new HttpProvider("https://mainnet.infura.io"
 
 Ethstream works by repeatedly querying the `"latest"` block, and then trying to place that block into a block tree. If we haven't seen the new block's parent, the parent is added to the tree first.
 
-When a block is successfully added to the tree, the `onAddBlock` callback is triggered. As new children blocks are added, the "depth" of each old block is tracked. When a block's depth reaches `numConfirmations`, the `onConfirmBlock` callback is triggered. If a block falls behind, meaning that it at least one sibling block with a depth of `numConfirmations`, that block is cleaned up, and `onRollbackBlock` is called.
+When a block is successfully added to the tree, the `onAddBlock` callback is triggered. As new children blocks are added, the "depth" of each old block is tracked. When a block's depth reaches `numConfirmations`, the `onConfirmBlock` callback is triggered. If a block falls behind, meaning that it has at least one sibling block with a depth of `numConfirmations`, that block is cleaned up, and `onRollbackBlock` is called.
 
 This allows you to write clear services that neatly deal with complicated blockchain reorganizations.
 
